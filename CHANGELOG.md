@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 — 2026-10-05
 
 - App: no longer slows the game it monitors. Measured: ~11% CPU → 1.6% with the window visible, 0.13% when hidden; while streaming wine-vr, the game's Mac frame time had gone from 13.7 ms with the app quit to 28.9 ms with it open (#1).
   - Traffic chart and rate labels update only while the window or menu is visible.
