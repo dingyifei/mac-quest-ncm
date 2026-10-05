@@ -8,6 +8,8 @@
   - 1 Hz traffic updates redraw only the chart, not the whole window; status updates only redraw when something changed; chart animations are off.
 - Core: interface and route state are read natively (getifaddrs, SCDynamicStore) instead of spawning ifconfig/scutil. The Quest's state is read with one `dumpsys connectivity` per refresh instead of two, and polled every 10–60 s instead of 6 s.
 - App: reopening the app brings back a minimised or closed window.
+- `mqncm up` while internet sharing is active keeps the Quest's gateway and DNS. Before, the Quest silently lost internet while the Mac still reported sharing on.
+- `mqncm restore-usb` verified on hardware (back to the default USB mode in ~2 s); docs and `down` now point to it instead of a replug.
 
 ## 0.1.0 — 2026-10-05
 

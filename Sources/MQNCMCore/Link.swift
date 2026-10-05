@@ -89,12 +89,15 @@ public struct Link {
             throw LinkError.stage("mac", "\(ifname) did not come up with \(plan.macHost)")
         }
 
+        // If sharing is already active (NAT loaded by an earlier `share on`), keep handing the Quest its
+        // gateway and DNS; otherwise a plain `up` would silently cut the Quest's internet.
+        let withGateway = o.share || PF.isSharing
         let current = try quest.ipv4()
-        if o.share || current != plan.questCIDR {
+        if withGateway || current != plan.questCIDR {
             try quest.setStatic(cidr: plan.questCIDR,
-                                gateway: o.share ? plan.macHost : nil,
-                                dns: o.share ? o.dns : [])
-            log("[addr] Quest usb0 static \(plan.questCIDR)\(o.share ? " gw \(plan.macHost) dns \(o.dns.joined(separator: ","))" : "")")
+                                gateway: withGateway ? plan.macHost : nil,
+                                dns: withGateway ? o.dns : [])
+            log("[addr] Quest usb0 static \(plan.questCIDR)\(withGateway ? " gw \(plan.macHost) dns \(o.dns.joined(separator: ","))" : "")")
         } else {
             log("[addr] Quest usb0 already \(plan.questCIDR)")
         }
@@ -121,7 +124,7 @@ public struct Link {
             log(ok != nil ? "[nat ] Quest validated the cable and made it its default network"
                           : "[nat ] warning: Quest has not validated the cable yet (VPN/filter on the Mac?)")
         }
-        log("LINK UP if=\(ifname) mac=\(plan.macHost) quest=\(plan.questHost) share=\(o.share ? "on" : "off")")
+        log("LINK UP if=\(ifname) mac=\(plan.macHost) quest=\(plan.questHost) share=\(o.share || PF.isSharing ? "on" : "off")")
     }
 
     public func shareOff(_ o: LinkOptions) throws {
@@ -140,16 +143,16 @@ public struct Link {
         var adb = try ADB(serial: o.serial)
         try adb.resolve(usbSerial: questDevice()?.serial)
         try Quest(adb: adb).setDHCP()
-        log("[addr] Quest usb0 back to dhcp. Replug the cable to return the Quest to its default USB mode.")
+        log("[addr] Quest usb0 back to dhcp. Run `mqncm restore-usb` (or replug) to return the Quest to its default USB mode.")
     }
 
     public func status(serial: String?) {
         LinkStatus.collect(serial: serial).lines.forEach(log)
     }
 
-    /// Returns the Quest to its default USB mode (Link, MTP, Meta vendor interfaces). Android restores the
-    /// screen-unlocked default when setFunctions is called with no argument; if the Quest does not
-    /// re-enumerate without NCM, the reliable fallback is a replug.
+    /// Returns the Quest to its default USB mode (Link, MTP, Meta vendor interfaces). `svc usb setFunctions`
+    /// with no argument restores the default composition (verified on Quest 3 / HzOS 2.7: 0x5018 -> 0x5013
+    /// in ~2 s); a replug is the fallback if the Quest doesn't re-enumerate.
     public func restoreUSB(_ o: LinkOptions) throws {
         guard let dev = questDevice() else { throw LinkError.stage("usb", "no Quest attached") }
         guard dev.hasNCMFunction else { log("[usb ] already in default USB mode"); return }

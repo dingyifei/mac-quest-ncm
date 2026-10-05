@@ -58,7 +58,7 @@ mqncm monitor [--json]      # live traffic rates on the link
 mqncm test [--json]         # latency + throughput over the cable
 sudo mqncm share on|off     # share this Mac's internet with the Quest (NAT)
 mqncm share status
-mqncm restore-usb           # Quest back to its default USB mode (or just replug)
+mqncm restore-usb           # Quest back to its default USB mode (~2 s; or just replug)
 mqncm down                  # Quest usb0 back to DHCP
 ```
 
@@ -123,7 +123,7 @@ Research notes and raw results are in [docs/research/](docs/research/).
 
 1. Stop sharing: `sudo mqncm share off`.
 2. Return the Quest to DHCP: `mqncm down`.
-3. Replug the cable, which returns the Quest to its default USB mode.
+3. `mqncm restore-usb`, or replug the cable, to return the Quest to its default USB mode.
 4. Optionally, remove the Mac's network service named after the Quest: System Settings → Network.
 5. `brew uninstall --zap --cask mac-quest-ncm` removes the app and `/Library/Application Support/Mac-Quest-NCM`.
 
