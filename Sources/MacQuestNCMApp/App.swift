@@ -177,6 +177,7 @@ struct ActionButtons: View {
             }
             Toggle("Share internet", isOn: Binding(get: { s.sharing }, set: { model.setSharing($0) }))
                 .toggleStyle(.switch)
+                .fixedSize()
                 .disabled(!s.isUp)
             Button("Speed test", systemImage: "speedometer") { model.speedTest() }
                 .disabled(!s.isUp)
@@ -213,7 +214,7 @@ struct MenuContent: View {
             }
         }
         .padding(12)
-        .frame(width: 400)
+        .frame(width: 440)
         .onAppear { model.surfaceAppeared() }
         .onDisappear { model.surfaceDisappeared() }
     }
