@@ -73,7 +73,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           V=${{ steps.v.outputs.version }}
-          gh release create "v$V" release/* --title "Mac-Quest-NCM $V" --notes-file <(sed -n "/^## $V/,/^## /p" CHANGELOG.md | sed '$d')
+          gh release create "v$V" release/* --title "Mac-Quest-NCM $V" --notes-file <(scripts/release-notes.sh "$V")
 
       - name: Update Homebrew tap
         if: env.DRY_RUN != 'true'

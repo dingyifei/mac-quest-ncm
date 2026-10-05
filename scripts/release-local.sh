@@ -11,7 +11,7 @@ IDENTITY=$(security find-identity -v -p codesigning | sed -nE 's/.*"(Developer I
 scripts/bundle-app.sh --sign "$IDENTITY"
 scripts/notarize.sh "$V" --profile mqncm-notary
 if [[ ${1:-} == --publish ]]; then
-  gh release create "v$V" release/* --title "Mac-Quest-NCM $V" --notes-file <(sed -n "/^## $V/,/^## /p" CHANGELOG.md | sed '$d')
+  gh release create "v$V" release/* --title "Mac-Quest-NCM $V" --notes-file <(scripts/release-notes.sh "$V")
   [[ -d ../homebrew-tap ]] || gh repo clone dingyifei/homebrew-tap ../homebrew-tap
   scripts/render-tap.sh "$V" release ../homebrew-tap
   print "review and push ../homebrew-tap"
