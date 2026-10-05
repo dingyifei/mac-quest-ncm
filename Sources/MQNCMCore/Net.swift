@@ -1,4 +1,5 @@
 import Foundation
+import SystemConfiguration
 
 public struct LinkPlan {
     public var subnetPrefix = "192.168.42"
@@ -83,29 +84,43 @@ public enum MacNet {
         return s.name
     }
 
+    /// IPv4 address of `device` via getifaddrs (no subprocess; safe to call often).
     public static func ipv4(of device: String) -> String? {
-        guard let out = try? Shell.run("/sbin/ifconfig", [device]).stdout else { return nil }
-        return out.split(separator: "\n").compactMap { line -> String? in
-            let f = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
-            guard f.first == "inet", f.count > 1 else { return nil }
-            return String(f[1])
-        }.first
+        var head: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&head) == 0 else { return nil }
+        defer { freeifaddrs(head) }
+        var cur = head
+        while let ifa = cur {
+            defer { cur = ifa.pointee.ifa_next }
+            guard String(cString: ifa.pointee.ifa_name) == device, let sa = ifa.pointee.ifa_addr,
+                  sa.pointee.sa_family == UInt8(AF_INET) else { continue }
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            if getnameinfo(sa, socklen_t(sa.pointee.sa_len), &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
+                return String(cString: host)
+            }
+        }
+        return nil
     }
 
     public static func isUpRunning(_ device: String) -> Bool {
-        guard let out = try? Shell.run("/sbin/ifconfig", [device]).stdout,
-              let flags = out.split(separator: "\n").first else { return false }
-        return flags.contains("UP") && flags.contains("RUNNING")
+        var head: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&head) == 0 else { return false }
+        defer { freeifaddrs(head) }
+        var cur = head
+        while let ifa = cur {
+            defer { cur = ifa.pointee.ifa_next }
+            if String(cString: ifa.pointee.ifa_name) == device {
+                let f = Int32(ifa.pointee.ifa_flags)
+                return f & IFF_UP != 0 && f & IFF_RUNNING != 0
+            }
+        }
+        return false
     }
 
-    /// PrimaryInterface/Router of the Mac's global IPv4 state.
+    /// PrimaryInterface/Router of the Mac's global IPv4 state, read from the SystemConfiguration store.
     public static func primary() -> (interface: String?, router: String?) {
-        guard let out = try? Shell.run("/usr/sbin/scutil", [], input: "show State:/Network/Global/IPv4\n").stdout else { return (nil, nil) }
-        func value(_ key: String) -> String? {
-            out.split(separator: "\n").first { $0.contains("\(key) :") }?
-                .split(separator: ":").last?.trimmingCharacters(in: .whitespaces)
-        }
-        return (value("PrimaryInterface"), value("Router"))
+        guard let dict = SCDynamicStoreCopyValue(nil, "State:/Network/Global/IPv4" as CFString) as? [String: Any] else { return (nil, nil) }
+        return (dict["PrimaryInterface"] as? String, dict["Router"] as? String)
     }
 
     /// Fails if any local interface (other than `except`) already sits in the planned subnet.

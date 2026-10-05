@@ -137,8 +137,11 @@ public struct Quest {
 
     /// Packages holding an app-requested TRANSPORT_USB network (Meta's official "Mode A"), which pre-empts Mode B.
     public func modeAHolders() throws -> [String] {
-        let dump = try adb.shell("dumpsys connectivity", timeout: 30).stdout
-        return dump.split(separator: "\n")
+        Self.modeAHolders(in: try adb.shell("dumpsys connectivity", timeout: 30).stdout)
+    }
+
+    static func modeAHolders(in dump: String) -> [String] {
+        dump.split(separator: "\n")
             .filter { $0.contains("REQUEST id=") && $0.contains("Transports: USB") }
             .compactMap { line -> String? in
                 guard let r = line.range(of: "RequestorPkg: ") else { return nil }
@@ -149,7 +152,16 @@ public struct Quest {
     public struct EthernetState { public let isDefault: Bool; public let validated: Bool }
 
     public func ethernetState() throws -> EthernetState {
+        Self.ethernetState(in: try adb.shell("dumpsys connectivity", timeout: 30).stdout)
+    }
+
+    /// Validation/default state and Mode A holders from a single `dumpsys connectivity`.
+    public func connectivity() throws -> (EthernetState, [String]) {
         let dump = try adb.shell("dumpsys connectivity", timeout: 30).stdout
+        return (Self.ethernetState(in: dump), Self.modeAHolders(in: dump))
+    }
+
+    static func ethernetState(in dump: String) -> EthernetState {
         let lines = dump.split(separator: "\n")
         guard let def = lines.first(where: { $0.hasPrefix("Active default network:") })?
                 .split(separator: " ").last.map(String.init),

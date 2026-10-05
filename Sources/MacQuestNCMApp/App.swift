@@ -37,8 +37,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Clicking the app in Finder/Launchpad again re-opens the window if it was closed.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { NSApp.windows.first { $0.identifier?.rawValue.contains("main") == true }?.makeKeyAndOrderFront(nil) }
+        AppDelegate.showMainWindow()
         return true
+    }
+
+    /// Brings the main window back whether it is minimised, behind other apps, or closed
+    /// (SwiftUI keeps a single `Window` scene's NSWindow alive after closing).
+    static func showMainWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        for w in NSApp.windows where w.styleMask.contains(.titled) && w.canBecomeMain {
+            if w.isMiniaturized { w.deminiaturize(nil) }
+            w.makeKeyAndOrderFront(nil)
+        }
     }
 }
 
@@ -100,12 +110,12 @@ struct StatusHeader: View {
 }
 
 struct RateView: View {
-    @EnvironmentObject var model: AppModel
+    @ObservedObject var traffic: TrafficModel
     var body: some View {
         HStack(spacing: 16) {
-            Label("\(mbps(model.latestRate?.rxMbps ?? 0)) Mbit/s", systemImage: "arrow.down")
+            Label("\(mbps(traffic.latest?.rxMbps ?? 0)) Mbit/s", systemImage: "arrow.down")
                 .help("Quest → Mac")
-            Label("\(mbps(model.latestRate?.txMbps ?? 0)) Mbit/s", systemImage: "arrow.up")
+            Label("\(mbps(traffic.latest?.txMbps ?? 0)) Mbit/s", systemImage: "arrow.up")
                 .help("Mac → Quest")
         }
         .font(.system(.body, design: .monospaced))
@@ -188,7 +198,7 @@ struct MenuContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             StatusHeader()
-            if model.status.isUp { RateView() }
+            if model.status.isUp { RateView(traffic: model.traffic) }
             Banners()
             ActionButtons(compact: true)
             Divider()
@@ -196,7 +206,7 @@ struct MenuContent: View {
                 Button("Copy Quest IP") { model.copyQuestIP() }.disabled(model.status.questHost == nil)
                 Button("Open window") {
                     openWindow(id: "main")
-                    NSApp.activate(ignoringOtherApps: true)
+                    AppDelegate.showMainWindow()
                 }
                 Spacer()
                 Button("Quit") { NSApp.terminate(nil) }
@@ -204,6 +214,8 @@ struct MenuContent: View {
         }
         .padding(12)
         .frame(width: 400)
+        .onAppear { model.surfaceAppeared() }
+        .onDisappear { model.surfaceDisappeared() }
     }
 }
 
@@ -221,6 +233,7 @@ struct MainWindow: View {
             footer.padding(.horizontal, 16).padding(.vertical, 10)
         }
         .frame(minWidth: 560, minHeight: 420)
+        .background(WindowVisibilityReporter(model: model))
     }
 
     var content: some View {
@@ -230,19 +243,7 @@ struct MainWindow: View {
             ActionButtons()
 
             GroupBox("Traffic (last 60 s)") {
-                VStack(alignment: .leading) {
-                    RateView()
-                    Chart {
-                        ForEach(model.samples) { s in
-                            LineMark(x: .value("Time", s.time), y: .value("Mbit/s", s.rxMbps), series: .value("Dir", "Quest → Mac"))
-                                .foregroundStyle(by: .value("Dir", "Quest → Mac"))
-                            LineMark(x: .value("Time", s.time), y: .value("Mbit/s", s.txMbps), series: .value("Dir", "Mac → Quest"))
-                                .foregroundStyle(by: .value("Dir", "Mac → Quest"))
-                        }
-                    }
-                    .chartYAxisLabel("Mbit/s")
-                    .frame(height: 140)
-                }
+                TrafficChart(traffic: model.traffic)
             }
 
             GroupBox("Link") {
@@ -293,6 +294,74 @@ struct MainWindow: View {
             Text(v).textSelection(.enabled)
         }
     }
+}
+
+/// Only this view (and RateView) re-render at 1 Hz; animations are off so each update is a single cheap draw.
+struct TrafficChart: View {
+    @ObservedObject var traffic: TrafficModel
+    var body: some View {
+        VStack(alignment: .leading) {
+            RateView(traffic: traffic)
+            Chart {
+                ForEach(traffic.samples) { s in
+                    LineMark(x: .value("Time", s.time), y: .value("Mbit/s", s.rxMbps), series: .value("Dir", "Quest → Mac"))
+                        .foregroundStyle(by: .value("Dir", "Quest → Mac"))
+                    LineMark(x: .value("Time", s.time), y: .value("Mbit/s", s.txMbps), series: .value("Dir", "Mac → Quest"))
+                        .foregroundStyle(by: .value("Dir", "Mac → Quest"))
+                }
+            }
+            .chartYAxisLabel("Mbit/s")
+            .frame(height: 140)
+            .transaction { $0.animation = nil }
+        }
+    }
+}
+
+/// Reports the main window as visible only while it is on screen and not fully covered
+/// (NSWindow occlusion state), so a hidden, minimised or covered window stops all live updates.
+struct WindowVisibilityReporter: NSViewRepresentable {
+    let model: AppModel
+
+    /// Hooks `viewDidMoveToWindow`: SwiftUI inserts the view before it has a window, so the window
+    /// can't be read at creation time.
+    final class TrackingView: NSView {
+        var model: AppModel?
+        private var visible = false
+        private var observers: [NSObjectProtocol] = []
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            guard let window else { set(false); return }
+            let names: [Notification.Name] = [NSWindow.didChangeOcclusionStateNotification, NSWindow.willCloseNotification,
+                                              NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification]
+            observers = names.map { name in
+                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
+                    guard let self, let w = self.window else { return }
+                    if note.name == NSWindow.willCloseNotification { self.set(false) }
+                    else { self.set(w.isVisible && !w.isMiniaturized && w.occlusionState.contains(.visible)) }
+                }
+            }
+            set(window.isVisible && window.occlusionState.contains(.visible))
+        }
+
+        private func set(_ now: Bool) {
+            guard now != visible, let model else { return }
+            visible = now
+            MainActor.assumeIsolated { now ? model.surfaceAppeared() : model.surfaceDisappeared() }
+        }
+
+        deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+    }
+
+    func makeNSView(context: Context) -> TrackingView {
+        let v = TrackingView()
+        v.model = model
+        return v
+    }
+
+    func updateNSView(_ nsView: TrackingView, context: Context) {}
 }
 
 struct SettingsView: View {

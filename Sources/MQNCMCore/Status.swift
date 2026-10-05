@@ -118,8 +118,11 @@ public struct LinkStatus: Codable, Equatable {
         s.adbAvailable = true
         let q = Quest(adb: adb)
         s.questIPv4 = (try? q.ipv4()) ?? nil
-        if let e = try? q.ethernetState() { s.questCableValidated = e.validated; s.questCableDefault = e.isDefault }
-        s.modeAHolders = (try? q.modeAHolders()) ?? []
+        if let (e, holders) = try? q.connectivity() {
+            s.questCableValidated = e.validated
+            s.questCableDefault = e.isDefault
+            s.modeAHolders = holders
+        }
         return s
     }
 }

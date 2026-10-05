@@ -2,11 +2,19 @@ import AppKit
 import Foundation
 import MQNCMCore
 
+/// High-frequency traffic data, kept separate so 1 Hz updates only redraw the rate labels and chart.
+@MainActor
+final class TrafficModel: ObservableObject {
+    @Published var samples: [RateSample] = []
+    var latest: RateSample? { samples.last }
+}
+
 /// UI state. All link work runs off the main thread through the same MQNCMCore calls the CLI uses.
+/// While no window or menu is visible, nothing is published, so the app costs ~nothing during a VR session.
 @MainActor
 final class AppModel: ObservableObject {
     @Published var status = LinkStatus()
-    @Published var samples: [RateSample] = []
+    let traffic = TrafficModel()
     @Published var log: [String] = []
     @Published var busy: String?
     @Published var lastError: String?
@@ -30,7 +38,21 @@ final class AppModel: ObservableObject {
     private var timer: Timer?
     private var tick = 0
 
-    var latestRate: RateSample? { samples.last }
+    /// Number of visible surfaces (main window, menu bar dropdown) currently showing live data.
+    private var visibleSurfaces = 0
+    var uiVisible: Bool { visibleSurfaces > 0 }
+
+    func surfaceAppeared() {
+        visibleSurfaces += 1
+        if visibleSurfaces == 1 {
+            traffic.samples = meter?.history ?? []
+            refresh(full: true)
+        }
+    }
+
+    func surfaceDisappeared() {
+        visibleSurfaces = max(0, visibleSurfaces - 1)
+    }
     /// Most recent step of the running operation, shown next to the spinner.
     var currentStep: String? { busy == nil ? nil : log.last }
 
@@ -49,15 +71,25 @@ final class AppModel: ObservableObject {
     private func onTick() {
         tick += 1
         sampleTraffic()
-        // USB/interface state is cheap (IOKit); the Quest side goes through adb, so poll it less often.
-        if tick % 2 == 0 { refresh(full: tick % 6 == 0 || (busy != nil && tick % 2 == 0)) }
+        // Mac-side state is cheap (IOKit + getifaddrs); the Quest side costs an adb round trip and a
+        // `dumpsys` on the headset, so poll it rarely, and only while someone is looking or an action runs.
+        let active = uiVisible || busy != nil
+        if active {
+            if tick % 2 == 0 { refresh(full: busy != nil || tick % 10 == 0) }
+        } else if tick % 15 == 0 {
+            refresh(full: tick % 60 == 0)   // keep the menu-bar icon roughly current
+        }
     }
 
     private func sampleTraffic() {
-        guard let ifn = status.interface else { meter = nil; samples = []; return }
+        guard let ifn = status.interface else {
+            meter = nil
+            if !traffic.samples.isEmpty { traffic.samples = [] }
+            return
+        }
         if meter?.interface != ifn { meter = TrafficMeter(interface: ifn) }
-        meter?.sample()
-        samples = meter?.history ?? []
+        meter?.sample()                       // reading counters is a single getifaddrs call
+        if uiVisible { traffic.samples = meter?.history ?? [] }
     }
 
     func refresh(full: Bool) {
@@ -76,7 +108,7 @@ final class AppModel: ObservableObject {
             await MainActor.run {
                 self.noteChanges(from: previous, to: result, first: !self.sawFirstStatus)
                 self.sawFirstStatus = true
-                self.status = result
+                if self.status != result { self.status = result }   // no redraw when nothing changed
             }
         }
     }
