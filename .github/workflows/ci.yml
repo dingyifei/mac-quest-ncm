@@ -1,0 +1,28 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: xcodebuild -version && swift --version
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+      - name: CLI smoke test
+        run: |
+          .build/debug/mqncm --version
+          .build/debug/mqncm --help
+          .build/debug/mqncm status   # no Quest attached on CI: must not crash
+      - name: Bundle (universal, ad-hoc signed)
+        run: scripts/bundle-app.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mac-Quest-NCM-unsigned
+          path: dist/
