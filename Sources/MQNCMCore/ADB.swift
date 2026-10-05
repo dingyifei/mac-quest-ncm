@@ -2,11 +2,13 @@ import Foundation
 
 public enum ADBError: Error, CustomStringConvertible {
     case notFound
+    case unauthorized(String)
     case noDevice(String)
     case command(String, String)
     public var description: String {
         switch self {
         case .notFound: return "adb not found (set $ADB, or install Android platform-tools)"
+        case .unauthorized(let s): return "adb is not authorized for \(s): put on the headset and allow USB debugging (tick 'Always allow')"
         case .noDevice(let s): return s
         case .command(let cmd, let out): return "adb \(cmd) failed: \(out.trimmingCharacters(in: .whitespacesAndNewlines))"
         }
@@ -52,7 +54,8 @@ public struct ADB {
         if serial != nil { return }
         let devs = try devices()
         if let s = usbSerial, let d = devs.first(where: { $0.serial == s }) {
-            guard d.state == "device" else { throw ADBError.noDevice("adb sees \(s) as '\(d.state)': accept the USB debugging prompt in the headset") }
+            if d.state == "unauthorized" { throw ADBError.unauthorized(s) }
+            guard d.state == "device" else { throw ADBError.noDevice("adb sees \(s) as '\(d.state)'; replug the cable") }
             serial = s; return
         }
         let ready = devs.filter { $0.state == "device" }
@@ -61,6 +64,25 @@ public struct ADB {
                                                   : "several adb devices; pass --serial")
         }
         serial = ready[0].serial
+    }
+
+    /// Like `resolve`, but while the headset shows the USB debugging prompt it waits for the user to accept.
+    public mutating func resolve(usbSerial: String?, waitForAuthorization seconds: Double, onWait: (String) -> Void) throws {
+        let end = Date().addingTimeInterval(seconds)
+        var told = false
+        while true {
+            do { try resolve(usbSerial: usbSerial); return }
+            catch let e as ADBError {
+                guard case .unauthorized = e, Date() < end else { throw e }
+                if !told { onWait("[adb ] waiting: put on the headset and allow USB debugging (tick 'Always allow')"); told = true }
+                Thread.sleep(forTimeInterval: 1)
+            }
+        }
+    }
+
+    /// adb's view of a device: "device", "unauthorized", "offline", or nil if absent / adb missing.
+    public func state(of usbSerial: String) -> String? {
+        (try? devices())?.first { $0.serial == usbSerial }?.state
     }
 
     @discardableResult

@@ -19,6 +19,14 @@ public struct LinkStatus: Codable, Equatable {
     public var macPrimaryInterface: String?
     public var macRouter: String?
     public var adbAvailable = false
+    /// adb's state for this Quest: "device", "unauthorized", "offline", "absent", or "missing" (no adb binary).
+    public var adbState: String?
+    public var needsADBAuthorization: Bool { adbState == "unauthorized" }
+    /// "192.168.42.1 ⇄ 192.168.42.2" once both ends are addressed.
+    public var addressLine: String? {
+        guard let m = macIPv4, let q = questHost else { return nil }
+        return "Mac \(m) ⇄ Quest \(q)"
+    }
     public var questIPv4: String?
     public var questCableValidated: Bool?
     public var questCableDefault: Bool?
@@ -48,6 +56,7 @@ public struct LinkStatus: Codable, Equatable {
         let speed = usbLinkSpeedBps.map { USB.describe(bitsPerSecond: $0) } ?? "unknown speed"
         out.append("usb    : \(productName ?? "Quest") \(serial ?? "") pid \(pid) (\(composition ?? "?")), \(speed)")
         if accessoryBlocked { out.append("gate   : macOS is blocking this USB mode — unlock and click Allow") }
+        if needsADBAuthorization { out.append("adb    : not authorized — put on the headset and allow USB debugging") }
         if let i = interface {
             out.append("if     : \(i) \(interfaceUp ? "UP,RUNNING" : "down") link=\(linkActive ? "active" : "inactive") ipv4=\(macIPv4 ?? "none")")
         } else if state == .unnamed {
@@ -64,7 +73,7 @@ public struct LinkStatus: Codable, Equatable {
             }
             if !modeAHolders.isEmpty { out.append("quest  : USB network held by \(modeAHolders.joined(separator: ", ")) (Meta app mode)") }
         } else {
-            out.append("quest  : adb unavailable")
+            out.append("quest  : adb \(adbState ?? "unavailable")")
         }
         return out
     }
@@ -102,7 +111,10 @@ public struct LinkStatus: Codable, Equatable {
         else if dev.hasNCMFunction { s.state = .unnamed }
         else { s.state = .defaultMode }
 
-        guard includeQuest, var adb = try? ADB(serial: serial), (try? adb.resolve(usbSerial: dev.serial)) != nil else { return s }
+        guard includeQuest else { return s }
+        guard var adb = try? ADB(serial: serial) else { s.adbState = "missing"; return s }
+        s.adbState = adb.state(of: dev.serial) ?? "absent"
+        guard (try? adb.resolve(usbSerial: dev.serial)) != nil else { return s }
         s.adbAvailable = true
         let q = Quest(adb: adb)
         s.questIPv4 = (try? q.ipv4()) ?? nil

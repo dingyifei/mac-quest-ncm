@@ -5,9 +5,17 @@ import SwiftUI
 
 @main
 struct MacQuestNCMApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = AppModel()
 
     var body: some Scene {
+        // First scene + .presented: the window opens at launch even though the app is LSUIElement.
+        Window("Mac-Quest-NCM", id: "main") {
+            MainWindow().environmentObject(model)
+        }
+        .defaultSize(width: 640, height: 820)
+        .defaultLaunchBehavior(.presented)
+
         MenuBarExtra {
             MenuContent().environmentObject(model)
         } label: {
@@ -15,14 +23,22 @@ struct MacQuestNCMApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        Window("Mac-Quest-NCM", id: "main") {
-            MainWindow().environmentObject(model)
-        }
-        .defaultSize(width: 620, height: 640)
-
         Settings {
             SettingsView().environmentObject(model)
         }
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Menu-bar (LSUIElement) apps don't come to the front on launch; bring the window forward.
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        DispatchQueue.main.async { NSApp.activate(ignoringOtherApps: true) }
+    }
+
+    /// Clicking the app in Finder/Launchpad again re-opens the window if it was closed.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { NSApp.windows.first { $0.identifier?.rawValue.contains("main") == true }?.makeKeyAndOrderFront(nil) }
+        return true
     }
 }
 
@@ -54,6 +70,10 @@ func mbps(_ v: Double) -> String { v >= 100 ? String(format: "%.0f", v) : String
 struct StatusHeader: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
+        VStack(alignment: .leading, spacing: 6) { header }
+    }
+
+    @ViewBuilder var header: some View {
         HStack(spacing: 8) {
             Circle().fill(model.status.stateColor).frame(width: 10, height: 10)
             VStack(alignment: .leading, spacing: 2) {
@@ -64,9 +84,16 @@ struct StatusHeader: View {
                 }
             }
             Spacer()
-            if let busy = model.busy {
-                ProgressView().controlSize(.small)
-                Text(busy).font(.caption).foregroundStyle(.secondary)
+            if model.busy != nil { ProgressView().controlSize(.small) }
+        }
+        if let step = model.currentStep {
+            Text(step).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(2)
+        }
+        if let line = model.status.addressLine {
+            HStack {
+                Text(line).font(.system(.title3, design: .monospaced)).textSelection(.enabled)
+                Button { model.copyQuestIP() } label: { Image(systemName: "doc.on.doc") }
+                    .buttonStyle(.borderless).help("Copy Quest IP")
             }
         }
     }
@@ -88,6 +115,14 @@ struct RateView: View {
 struct Banners: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
+        if model.status.needsADBAuthorization {
+            Banner(text: "Put on the headset and allow USB debugging for this Mac (tick \"Always allow\").",
+                   icon: "visionpro")
+        }
+        if model.status.usbPresent && model.status.adbState == "missing" {
+            Banner(text: "adb not found. Install it (brew install --cask android-platform-tools) or set its path in Settings.",
+                   icon: "wrench.and.screwdriver")
+        }
         if model.status.accessoryBlocked {
             Banner(text: "macOS is blocking the Quest's new USB mode. Unlock the Mac and click Allow on the accessory prompt.",
                    icon: "lock.trianglebadge.exclamationmark")
@@ -178,6 +213,17 @@ struct MainWindow: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                content.padding(16)
+            }
+            Divider()
+            footer.padding(.horizontal, 16).padding(.vertical, 10)
+        }
+        .frame(minWidth: 560, minHeight: 420)
+    }
+
+    var content: some View {
         VStack(alignment: .leading, spacing: 12) {
             StatusHeader()
             Banners()
@@ -223,9 +269,12 @@ struct MainWindow: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
                 }
-                .frame(minHeight: 100)
+                .frame(minHeight: 80, maxHeight: 160)
             }
+        }
+    }
 
+    var footer: some View {
             HStack {
                 Button("Copy Quest IP") { model.copyQuestIP() }.disabled(model.status.questHost == nil)
                 if let cli = model.cliPath {
@@ -236,9 +285,6 @@ struct MainWindow: View {
                 Spacer()
                 SettingsLink { Text("Settings…") }
             }
-        }
-        .padding(16)
-        .frame(minWidth: 560, minHeight: 600)
     }
 
     @ViewBuilder func row(_ k: String, _ v: String) -> some View {

@@ -52,7 +52,7 @@ public struct Link {
         log("[usb ] \(dev.productName) serial \(dev.serial), pid \(String(format: "0x%04x", dev.productID)) (\(dev.compositionName))")
 
         var adb = try ADB(serial: o.serial)
-        try adb.resolve(usbSerial: dev.serial)
+        try adb.resolve(usbSerial: dev.serial, waitForAuthorization: 120, onWait: log)
         let quest = Quest(adb: adb)
 
         let holders = try quest.modeAHolders()

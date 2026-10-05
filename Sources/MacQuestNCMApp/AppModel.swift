@@ -23,10 +23,16 @@ final class AppModel: ObservableObject {
     }
 
     private var meter: TrafficMeter?
+    private var sawFirstStatus = false
+    private static let clock: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "HH:mm:ss"; return f
+    }()
     private var timer: Timer?
     private var tick = 0
 
     var latestRate: RateSample? { samples.last }
+    /// Most recent step of the running operation, shown next to the spinner.
+    var currentStep: String? { busy == nil ? nil : log.last }
 
     init() {
         applyADBPath()
@@ -44,7 +50,7 @@ final class AppModel: ObservableObject {
         tick += 1
         sampleTraffic()
         // USB/interface state is cheap (IOKit); the Quest side goes through adb, so poll it less often.
-        if tick % 2 == 0 { refresh(full: tick % 6 == 0) }
+        if tick % 2 == 0 { refresh(full: tick % 6 == 0 || (busy != nil && tick % 2 == 0)) }
     }
 
     private func sampleTraffic() {
@@ -60,13 +66,18 @@ final class AppModel: ObservableObject {
             var s = LinkStatus.collect(includeQuest: full)
             if !full {
                 s.adbAvailable = previous.adbAvailable
+                s.adbState = previous.adbState
                 s.questIPv4 = previous.questIPv4
                 s.questCableValidated = previous.questCableValidated
                 s.questCableDefault = previous.questCableDefault
                 s.modeAHolders = previous.modeAHolders
             }
             let result = s
-            await MainActor.run { self.status = result }
+            await MainActor.run {
+                self.noteChanges(from: previous, to: result, first: !self.sawFirstStatus)
+                self.sawFirstStatus = true
+                self.status = result
+            }
         }
     }
 
@@ -76,8 +87,41 @@ final class AppModel: ObservableObject {
         return o
     }
 
+    /// Logs what the app observes (not only what it does), so the log is meaningful right after launch.
+    private func noteChanges(from old: LinkStatus, to new: LinkStatus, first: Bool) {
+        if first {
+            append("Mac-Quest-NCM \(MQNCMVersion.string) started — \(new.summary)")
+            if let a = new.addressLine { append(a) }
+            return
+        }
+        if old.usbPresent != new.usbPresent {
+            append(new.usbPresent ? "\(new.productName ?? "Quest") attached (\(new.composition ?? "?"))" : "Quest detached")
+        } else if new.usbPresent, old.productID != new.productID {
+            append("Quest USB mode changed: \(new.composition ?? "?")")
+        }
+        if old.usbLinkSpeedBps != new.usbLinkSpeedBps, let b = new.usbLinkSpeedBps {
+            append("USB link speed \(USB.describe(bitsPerSecond: b))")
+        }
+        if old.state != new.state { append(new.summary) }
+        if old.addressLine != new.addressLine, let a = new.addressLine { append(a) }
+        if old.adbState != new.adbState, let a = new.adbState, new.adbState != nil {
+            switch a {
+            case "unauthorized": append("adb: waiting for USB debugging approval in the headset")
+            case "device": if old.adbState == "unauthorized" { append("adb: authorized") }
+            case "missing": append("adb not found")
+            default: break
+            }
+        }
+        if old.questCableValidated != new.questCableValidated, let v = new.questCableValidated, old.questCableValidated != nil {
+            append(v ? "Quest validated the cable (internet via Mac)" : "Quest: cable not validated")
+        }
+        if old.modeAHolders != new.modeAHolders, !new.modeAHolders.isEmpty {
+            append("USB network held by \(new.modeAHolders.joined(separator: ", "))")
+        }
+    }
+
     private func append(_ line: String) {
-        log.append(line)
+        log.append("\(Self.clock.string(from: Date()))  \(line)")
         if log.count > 200 { log.removeFirst(log.count - 200) }
     }
 
