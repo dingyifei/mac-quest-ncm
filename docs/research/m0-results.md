@@ -53,3 +53,14 @@ en16 back in 2 s (same name — host MAC stable within one Quest boot), **no new
 
 ### questlink v0.1 (2026-10-05)
 `questlink up` from the default composition after a replug: switch → re-enumerate → en16 → service check → address → reach → route check, **4.8 s, rc 0**. `test`: 0.93 ms avg, 314/336 Mbit/s. Fixed during bring-up: adb exits non-zero when the switch tears down the USB transport (output `setCurrentFunctions` = applied); ifconfig lines are tab-prefixed.
+
+### E5 — wine-vr / stock ALVR over the link (2026-10-05)
+Offline pin per `docs/alvr-wine-vr.md` (client.wired removed, `quest.ncm` → 192.168.42.2, Tcp, discovery off), `demo.sh run` without `--wired`, ALVR client (alvr.client.stable) launched via `monkey`.
+| Item | Result |
+|---|---|
+| Connection | Mac dialled 192.168.42.2:9943 + :9944 (TCP) within ~2 s of the client starting; `current_ip` 192.168.42.2, state Streaming; no adb forwards |
+| Link traffic | 47–69 Mbit/s Mac→Quest, 4–5 Mbit/s Quest→Mac on the NCM interface (USB 2) |
+| ALVR network stage | p50 6.8 ms, p95 9.5 ms; 0 packets lost; TCP send queues empty |
+| Total latency | p50 152 ms with heavy background load; 120 ms after quitting the Mac-Quest-NCM window |
+| Bottleneck | Mac-side frame production, not the link: server_fps 28 → 44 and game frame time 28.9 → 13.7 ms when the Mac-Quest-NCM window (1 Hz chart redraw) was quit; ComfyUI (~230% CPU, GPU) and Syncthing (~150%) were also running |
+Follow-ups: re-measure on an idle Mac (expect server_fps 72); UDP stream with `share on`; app chart must not redraw when the window isn't visible.
