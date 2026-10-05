@@ -8,7 +8,7 @@ jobs:
   build:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Toolchain
         run: xcodebuild -version && swift --version
       - name: Build
@@ -22,7 +22,7 @@ jobs:
           .build/debug/mqncm status   # no Quest attached on CI: must not crash
       - name: Bundle (universal, ad-hoc signed)
         run: scripts/bundle-app.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Mac-Quest-NCM-unsigned
           path: dist/

@@ -4,7 +4,7 @@ jobs:
   audit:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: brew tap-new --no-git local/check && cp -R Casks Formula "$(brew --repository local/check)/"
       - run: brew style "$(brew --repository local/check)"
       - run: brew audit --cask --strict local/check/mac-quest-ncm || true   # online checks need a published release
