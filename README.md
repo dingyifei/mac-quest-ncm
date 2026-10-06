@@ -17,6 +17,12 @@ Optionally, the Mac can also share its internet with the Quest over the same cab
 
 It comes as a menu bar app (**Mac-Quest-NCM.app**) and a CLI (**`mqncm`**) with the same features.
 
+<p align="center">
+  <img src="docs/images/window.png" alt="Mac-Quest-NCM window: link status, Mac and Quest addresses, live traffic chart, link details and event log" width="520">
+  &nbsp;
+  <img src="docs/images/menubar.png" alt="Mac-Quest-NCM menu bar dropdown: link state, addresses, rates, Start/Stop NCM, internet sharing and speed test" width="400">
+</p>
+
 **Measured** on a Quest 3 (Horizon OS 2.7) and a MacBook Pro M3 Max (macOS 27), over a **USB 2** cable:
 
 | Metric | Result |
